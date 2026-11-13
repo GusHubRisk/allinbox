@@ -11,6 +11,8 @@ const AccountSchema = z.object({
   port: z.number().int().positive(),
   secure: z.boolean(),
   user: z.string().min(1),
+  // 'password' = app password in the keychain; 'oauth-microsoft' = refresh token in the keychain.
+  auth: z.enum(['password', 'oauth-microsoft']).default('password'),
 });
 export type Account = z.infer<typeof AccountSchema>;
 
@@ -24,6 +26,8 @@ const ConfigSchema = z.object({
       allowRecipients: z.array(z.string()).default([]),
     })
     .default({ enabled: false, allowRecipients: [] }),
+  // Outlook/Hotmail/Microsoft 365: the user's own Entra app registration (public client, no secret).
+  microsoft: z.object({ clientId: z.string().min(1).optional() }).default({}),
 });
 export type Config = z.infer<typeof ConfigSchema>;
 
@@ -69,3 +73,7 @@ export const setPassword = (id: string, password: string): void =>
   new Entry(KEYRING_SERVICE, id).setPassword(password);
 
 export const deletePassword = (id: string): boolean => new Entry(KEYRING_SERVICE, id).deletePassword();
+
+/** Env wins over config so a client id can be tried without touching config.json. */
+export const msClientId = (config: Config): string | undefined =>
+  process.env.ALLINBOX_MS_CLIENT_ID || config.microsoft.clientId;

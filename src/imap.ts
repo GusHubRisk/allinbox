@@ -1,7 +1,8 @@
 import { ImapFlow, type MessageAddressObject } from 'imapflow';
 import { simpleParser, type AddressObject } from 'mailparser';
 import { convert as htmlToText } from 'html-to-text';
-import { getPassword, type Account } from './config.js';
+import { getPassword, setPassword, loadConfig, msClientId, type Account } from './config.js';
+import { MsTokenCache } from './oauth.js';
 import { isGmailHost } from './providers.js';
 import { cleanBody, mergeHits, normalizeSubject, pickBody, type Hit } from './clean.js';
 
@@ -20,8 +21,23 @@ const isoDate = (d: Date | string | undefined): string => {
 
 const isLocalHost = (host: string) => host === '127.0.0.1' || host === 'localhost' || host === '::1';
 
-/** `pass` overrides the keychain: onboarding tests a password before storing it. */
-export async function withClient<T>(account: Account, fn: (c: ImapFlow) => Promise<T>, pass?: string): Promise<T> {
+const msTokens = new MsTokenCache(getPassword, setPassword);
+
+/** Password auth, or a fresh Microsoft access token (XOAUTH2) for OAuth accounts. */
+async function authFor(account: Account, secret?: string): Promise<{ user: string; pass?: string; accessToken?: string }> {
+  if (account.auth !== 'oauth-microsoft') return { user: account.user, pass: secret ?? getPassword(account.id) };
+  if (secret) return { user: account.user, accessToken: secret };
+  const clientId = msClientId(await loadConfig());
+  if (!clientId) throw new Error('No Microsoft client id configured. Run: allinbox add');
+  return { user: account.user, accessToken: await msTokens.accessToken(account.id, account.email, clientId) };
+}
+
+/**
+ * `secret` overrides the keychain: onboarding tests a login before storing it.
+ * For password accounts it is the app password; for OAuth accounts, an access token.
+ */
+export async function withClient<T>(account: Account, fn: (c: ImapFlow) => Promise<T>, secret?: string): Promise<T> {
+  const auth = await authFor(account, secret);
   const client = new ImapFlow({
     host: account.host,
     port: account.port,
@@ -29,7 +45,7 @@ export async function withClient<T>(account: Account, fn: (c: ImapFlow) => Promi
     // Non-TLS ports must upgrade with STARTTLS or fail: never send a password in clear over the network.
     // Localhost is exempt (Proton Bridge, test servers).
     ...(account.secure || isLocalHost(account.host) ? {} : { doSTARTTLS: true }),
-    auth: { user: account.user, pass: pass ?? getPassword(account.id) },
+    auth,
     logger: false,
     connectionTimeout: 15_000,
     socketTimeout: 20_000,

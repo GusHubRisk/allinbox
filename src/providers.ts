@@ -59,10 +59,6 @@ const outlook: Preset = {
   label: 'Outlook',
   host: 'outlook.office365.com',
   port: 993,
-  warning: {
-    en: 'Microsoft blocks password login for most personal Outlook/Hotmail accounts. It may fail; OAuth support is planned.',
-    es: 'Microsoft bloquea el login con contraseña en la mayoría de las cuentas personales de Outlook/Hotmail. Puede fallar; el soporte OAuth está planeado.',
-  },
 };
 
 const PRESETS: Record<string, Preset> = {
@@ -92,6 +88,9 @@ export const presetFor = (email: string): Preset | undefined =>
   PRESETS[email.split('@')[1]?.toLowerCase() ?? ''];
 
 export const isGmailHost = (host: string): boolean => host === gmail.host;
+
+/** Outlook/Hotmail/Live and Microsoft 365 need OAuth (device code), not app passwords. */
+export const isMicrosoftHost = (host: string): boolean => host === outlook.host;
 
 /**
  * Custom domains (a university, a company) usually run on Google Workspace or Microsoft 365.

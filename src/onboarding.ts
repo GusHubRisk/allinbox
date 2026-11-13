@@ -5,9 +5,10 @@ import { platform } from 'node:os';
 import { stdin, stdout } from 'node:process';
 import { styleText } from 'node:util';
 import { Writable } from 'node:stream';
-import { loadConfig, saveConfig, setPassword, type Account, type Config } from './config.js';
+import { loadConfig, saveConfig, setPassword, msClientId, type Account, type Config } from './config.js';
+import { deviceCodeLogin, tenantFor } from './oauth.js';
 import { resolveMx } from 'node:dns/promises';
-import { presetFor, presetForMx, type Preset } from './providers.js';
+import { presetFor, presetForMx, isMicrosoftHost, type Preset } from './providers.js';
 import { searchAccount } from './imap.js';
 import { AGENTS, type InstallResult } from './agents.js';
 import { tr, isYes, type L } from './i18n.js';
@@ -181,9 +182,10 @@ export async function addAccount(existing: Account[]): Promise<Account | null> {
     }
   }
 
+  if (preset && isMicrosoftHost(preset.host)) return addMicrosoftAccount(email, preset);
   if (preset?.appPassword) await guideAppPassword(preset, email);
 
-  const account: Account = { id: email, email, host, port, secure: port === 993, user: email };
+  const account: Account = { id: email, email, host, port, secure: port === 993, user: email, auth: 'password' };
   for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
     const typed = await ask({ en: 'Paste the app password (hidden): ', es: 'Pegá la contraseña de aplicación (no se ve): ' }, true);
     // Known providers show app passwords in groups ("abcd efgh ..."): spaces are never part of them.
@@ -213,6 +215,50 @@ export async function addAccount(existing: Account[]): Promise<Account | null> {
   }
   warn(tr({ en: `Skipped ${email}. Run "npx allinbox add" to retry.`, es: `Salteé ${email}. Corré "npx allinbox add" para reintentar.` }));
   return null;
+}
+
+const ENTRA_URL = 'https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade';
+
+/** Outlook/Hotmail/Microsoft 365: device-code OAuth. Stores the refresh token only after a login test. */
+async function addMicrosoftAccount(email: string, preset: Preset): Promise<Account | null> {
+  let clientId = msClientId(await loadConfig());
+  if (!clientId) {
+    console.log(`\n${bold(tr({ en: 'Microsoft needs an app registration (once)', es: 'Microsoft necesita registrar una app (una sola vez)' }))}`);
+    console.log(dim(tr({
+      en: 'New registration > "Accounts in any organizational directory and personal Microsoft accounts" > Register.\n  Then Authentication > "Allow public client flows" = Yes > Save. Copy the "Application (client) ID".',
+      es: 'Nuevo registro > "Cuentas de cualquier directorio organizativo y cuentas personales de Microsoft" > Registrar.\n  Después Autenticación > "Permitir flujos de clientes públicos" = Sí > Guardar. Copiá el "Id. de aplicación (cliente)".',
+    })));
+    openUrl(ENTRA_URL);
+    console.log(`  ${styleText('cyan', ENTRA_URL)}`);
+    clientId = await ask({ en: 'Application (client) ID: ', es: 'Id. de aplicación (cliente): ' });
+    if (!/^[0-9a-f-]{36}$/i.test(clientId)) {
+      warn(tr({ en: 'That is not a client id (a 36-character GUID).', es: 'Eso no es un id de cliente (un GUID de 36 caracteres).' }));
+      return null;
+    }
+  }
+  const account: Account = { id: email, email, host: preset.host, port: preset.port, secure: true, user: email, auth: 'oauth-microsoft' };
+  try {
+    const tokens = await deviceCodeLogin(clientId, tenantFor(email), (p) => {
+      openUrl(p.verificationUri);
+      say({ en: `\nSign in as ${email} at:`, es: `\nIniciá sesión como ${email} en:` });
+      console.log(`  ${styleText('cyan', p.verificationUri)}`);
+      console.log(`  ${tr({ en: 'and type this code:', es: 'y escribí este código:' })} ${bold(p.userCode)}`);
+      stdout.write(dim(tr({ en: 'Waiting for you to sign in... ', es: 'Esperando que inicies sesión... ' })));
+    });
+    stdout.write(dim(tr({ en: '\nConnecting... ', es: '\nConectando... ' })));
+    await searchAccount(account, { sinceDays: 1, limit: 1 }, tokens.accessToken);
+    setPassword(account.id, tokens.refreshToken);
+    const config = await loadConfig();
+    if (!config.microsoft.clientId) await saveConfig({ ...config, microsoft: { clientId } });
+    console.log('');
+    ok(tr({ en: `${email} connected.`, es: `${email} conectada.` }));
+    return account;
+  } catch (e) {
+    console.log('');
+    warn(e instanceof Error && /Microsoft/.test(e.message) ? e.message : tr(friendlyError(e, account)));
+    warn(tr({ en: `Skipped ${email}. Run "allinbox add" to retry.`, es: `Salteé ${email}. Corré "allinbox add" para reintentar.` }));
+    return null;
+  }
 }
 
 async function draftsStep(config: Config): Promise<Config> {
@@ -294,7 +340,8 @@ export async function onboarding(): Promise<void> {
   while (more) {
     const account = await addAccount(config.accounts);
     if (account) {
-      config = { ...config, accounts: [...config.accounts, account] };
+      const fresh = await loadConfig(); // addAccount may have saved a Microsoft client id
+      config = { ...fresh, accounts: [...fresh.accounts, account] };
       await saveConfig(config);
     }
     more = await confirm({ en: 'Add another account?', es: '¿Agregar otra cuenta?' }, false);

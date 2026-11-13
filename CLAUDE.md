@@ -35,7 +35,8 @@ TypeScript (tsc 7) · Node >= 20.12 · `@modelcontextprotocol/sdk` · `imapflow`
 - All email-derived text (bodies, subjects, senders, search results) goes inside the per-process
   random `<untrusted_email_NONCE>` wrapper; forged tags are defanged (`wrapUntrusted`).
 - Draft allowlist **fails closed**: empty = nobody, `*` = anyone (explicit).
-- Password stored in keychain only AFTER a successful login test.
+- Password (or Microsoft refresh token) stored in keychain only AFTER a successful login test.
+- Microsoft accounts (`auth: 'oauth-microsoft'`): device-code flow, public client, no secret; access tokens only in memory (`src/oauth.ts`).
 - Non-TLS ports require STARTTLS (localhost exempt). Per-account 30 s hard deadline.
 - Agent configs pin `allinbox@<VERSION>` and pass `serve` explicitly.
 

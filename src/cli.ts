@@ -21,7 +21,9 @@ const HELP = `allinbox — all your inboxes, one query, any agent.
 async function add(): Promise<void> {
   const config = await loadConfig();
   const account = await addAccount(config.accounts);
-  if (account) await saveConfig({ ...config, accounts: [...config.accounts, account] });
+  if (!account) return;
+  const fresh = await loadConfig(); // addAccount may have saved a Microsoft client id
+  await saveConfig({ ...fresh, accounts: [...fresh.accounts, account] });
 }
 
 async function remove(id?: string): Promise<void> {
@@ -65,7 +67,7 @@ async function main(): Promise<void> {
       return connectAgents();
     case 'list': {
       const { accounts, drafts } = await loadConfig();
-      console.log(accounts.length ? accounts.map((a) => `${a.id}  ${a.host}:${a.port}`).join('\n') : 'No accounts.');
+      console.log(accounts.length ? accounts.map((a) => `${a.id}  ${a.host}:${a.port}${a.auth === 'oauth-microsoft' ? '  (oauth)' : ''}`).join('\n') : 'No accounts.');
       console.log(`drafts: ${drafts.enabled ? `on${drafts.allowRecipients.length ? ` (only ${drafts.allowRecipients.join(', ')})` : ''}` : 'off'}`);
       return;
     }

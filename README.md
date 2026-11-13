@@ -164,7 +164,9 @@ allinbox remove <id>  remove an account and its stored password
 No. allinbox talks IMAP directly from your computer to your provider. What your *agent* does with the text it reads is up to the agent you use.
 
 **Outlook, Hotmail or Microsoft 365?**
-Not yet. Microsoft blocks password logins for these accounts, so they need OAuth, which is next on the [roadmap](ROADMAP.md).
+Supported in this fork through Microsoft's device-code OAuth (no password is stored, only a refresh token in your
+OS keychain). Microsoft requires an app registration, done once: the setup opens the Entra portal and tells you
+what to click, then asks for the "Application (client) ID". You can also set `ALLINBOX_MS_CLIENT_ID`.
 
 **Gmail says "The setting you are looking for is not available for your account".**
 Turn on 2-Step Verification first. On school or company Google accounts, your administrator may have disabled app passwords entirely.

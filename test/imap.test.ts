@@ -23,7 +23,7 @@ if (!hasDocker && process.env.REQUIRE_INTEGRATION === '1') {
 }
 
 const account = (id: string): Account => ({
-  id, email: `${id}@test.local`, host: '127.0.0.1', port: PORT, secure: false, user: `${id}@test.local`,
+  id, email: `${id}@test.local`, host: '127.0.0.1', port: PORT, secure: false, user: `${id}@test.local`, auth: 'password',
 });
 const alice = account('alice');
 const bob = account('bob');
